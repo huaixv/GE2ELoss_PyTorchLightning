@@ -3,7 +3,7 @@ SAMPLE_RATE = 16000
 NUM_MELS = 40  # No. of mel filters
 
 WIN_LEN = (int)(SAMPLE_RATE * 0.025)  # Window length
-WIN_HOP = (int)(SAMPLE_RATE * 0.01)  # Hop length
+WIN_HOP = (int)(SAMPLE_RATE * 0.010)  # Hop length
 
 NFFT = 512  # No. of FFT points
 
@@ -16,10 +16,21 @@ NUM_HIDDEN_NODES = 768
 NUM_LAYERS = 3
 NUM_PROJ = 256
 
+# Large Margin Softmax Loss parameters
+LMS_M1 = 4
+LMS_M2 = 0.5
+LMS_M3 = 0.1
+
 # Optimizer parameters, from GE2E paper
 SGD_LR = 0.01
 SGD_EPOCH_HALF = 30
 SGD_LR_GAMMA = 0.5
+
+ADAM_LR = 0.0001
+ADAM_EPOCH_HALF = 10
+ADAM_LR_GAMMA = 0.5
+
+GRAD_CLIP = 3
 
 # Batch size
 # We use `TRAIN_SPKS` speakers in each batch,

@@ -1,7 +1,6 @@
 import torch
 import torch.nn.functional as F
 from pytorch_lightning import LightningModule, Trainer
-from torch import nn
 from torch.utils.data import DataLoader
 
 from src.config import *
@@ -19,6 +18,8 @@ class Embedder(LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.SGD(self.parameters(), lr=SGD_LR)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, SGD_EPOCH_HALF, SGD_LR_GAMMA)
+        # optimizer = torch.optim.Adam(self.parameters(), lr=ADAM_LR)
+        # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, ADAM_EPOCH_HALF, ADAM_LR_GAMMA)
         return [optimizer], [scheduler]
 
     # ----------------------------------------
@@ -83,6 +84,34 @@ class Embedder(LightningModule):
         return l, S
 
     # ----------------------------------------
+    # ArcFace Loss
+    # ----------------------------------------
+    def arcfaceloss(self, E):
+        torch.clamp(self.w, 1e-6)
+
+        S = self.simmat(E)
+        I = list(range(S.size(0)))
+
+        # ArcSoftmax loss
+        pos = S[I, :, I]
+        pos = torch.acos(pos)
+        pos += LMS_M2
+        pos = torch.cos(pos)
+
+        S[I, :, I] = pos
+        S = self.w * S + self.b
+
+        pos = S[I, :, I]
+        neg = (S.exp().sum(dim=2) + 1e-6).log()
+        L = neg - pos
+        l = L.sum()
+        return l, S
+
+    # A simple loss wrapper
+    def loss(self, X):
+        return self.ge2eloss(X)
+
+    # ----------------------------------------
     # Train
     # ----------------------------------------
     def train_dataloader(self):
@@ -91,7 +120,7 @@ class Embedder(LightningModule):
     def training_step(self, batch, batch_idx):
         X, y = batch
         E = self(X)
-        L, _ = self.ge2eloss(E)
+        L, _ = self.loss(E)
         log = {
             'train_loss': L
         }
@@ -110,7 +139,7 @@ class Embedder(LightningModule):
         """
         X, y = batch
         E = self(X)
-        L, S = self.ge2eloss(E)
+        L, S = self.loss(E)
 
         # Randomize
         size = E.size()
@@ -125,12 +154,12 @@ class Embedder(LightningModule):
         idx = list(range(S.size(0)))
         y[idx, :, idx] = True
 
-        diff = torch.tensor(1.)
-        EER = torch.tensor(0.)
-        EER_thresh = torch.tensor(0.)
-        EER_FAR = torch.tensor(0.)
-        EER_FRR = torch.tensor(0.)
-        for th in [0.01 * i + 0.5 for i in range(50)]:
+        diff = torch.tensor(1.).to(S.device)
+        EER = torch.tensor(1.).to(S.device)
+        EER_thresh = torch.tensor(1.).to(S.device)
+        EER_FAR = torch.tensor(1.).to(S.device)
+        EER_FRR = torch.tensor(1.).to(S.device)
+        for th in [0.01 * i for i in range(100)]:
             y_pred = S > th
 
             fp = (y_pred == 1) & (y == 0)
@@ -145,7 +174,7 @@ class Embedder(LightningModule):
             if diff > abs(FAR - FRR):
                 diff = abs(FAR - FRR)
                 EER = (FAR + FRR) / 2
-                EER_thresh = torch.tensor(th)
+                EER_thresh = torch.tensor(th).to(S.device)
                 EER_FAR = FAR
                 EER_FRR = FRR
 
@@ -175,9 +204,9 @@ if __name__ == '__main__':
     net = Embedder()
 
     if RESUME:
-        trainer = Trainer(gpus=1, resume_from_checkpoint=CKPT_PATH, max_epochs=NUM_EPOCH)
+        trainer = Trainer(gpus=1, resume_from_checkpoint=CKPT_PATH, max_epochs=NUM_EPOCH, gradient_clip_val=GRAD_CLIP)
     else:
-        trainer = Trainer(gpus=1, max_epochs=NUM_EPOCH)
+        trainer = Trainer(gpus=1, max_epochs=NUM_EPOCH, gradient_clip_val=GRAD_CLIP)
 
     trainer.fit(net)
     # trainer.save_checkpoint(CKPT_PATH)
